@@ -110,6 +110,13 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
             // init model and set data
             $model = Mage::getModel('dc_catalog/manufacturer');
 
+            // The Status of a store-specific page can inherit the default page's Status.
+            // The form posts a hidden 0 followed by the checkbox, so the key is only present
+            // when the page is store-scoped; the default page never posts it.
+            if (array_key_exists('use_default_is_active', $data)) {
+                $data['use_default_is_active'] = !empty($data['use_default_is_active']) ? 1 : 0;
+            }
+
             // Process use_default_* flags for translatable fields.
             // When a field is set to "use default", clear its value so the resource
             // model will fall back to the default-store page at load time.
@@ -138,6 +145,9 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
             try {
                 // save the data
                 $model->save();
+
+                // Store pages that inherit the Status keep a stored copy of it; follow the default page.
+                $this->_syncInheritingStoreRows($model);
 
                 // Save per-store translations submitted from the Translations tab.
                 // Each entry in translations[store_id][field] is saved as a separate
@@ -280,11 +290,25 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
 
         $now = Mage::getSingleton('core/date')->gmtDate();
 
+        // When the main form edits a store-specific page, that page was just saved from the main
+        // form; the Translations tab carries a stale copy of the same store, which must not
+        // overwrite it.
+        $ownStoreId = (int)$read->fetchOne(
+            $read->select()
+                ->from($table, array('attribute_value_store_id'))
+                ->where('attribute_page_id = ?', (int)$defaultModel->getId())
+        );
+
         foreach ($translations as $storeId => $storeData) {
             $storeId = (int)$storeId;
-            if ($storeId <= 0) {
+            if ($storeId <= 0 || $storeId === $ownStoreId) {
                 continue;
             }
+
+            // A store view has its own Status unless "Use Default Value" is ticked. Choosing its own
+            // is a reason to keep a row even when nothing is translated.
+            $useDefaultActive = !empty($storeData['use_default_is_active']);
+            $hasOverride      = !$useDefaultActive;
 
             // Determine if there is any actual translated content submitted
             $hasContent = false;
@@ -306,12 +330,19 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
             );
 
             // Don't create a new row if there is nothing to translate
-            if (!$existingRow && !$hasContent) {
+            if (!$existingRow && !$hasContent && !$hasOverride) {
                 continue;
             }
 
             // Build the translatable columns to write
-            $translationData = array('update_time' => $now);
+            $translationData = array(
+                'update_time'           => $now,
+                'use_default_is_active' => $useDefaultActive ? 1 : 0,
+                // inheriting rows keep a copy of the default page's Status; overriding rows store their own
+                'is_active'             => $useDefaultActive
+                    ? ($defaultRow ? (int)$defaultRow['is_active'] : 1)
+                    : ((isset($storeData['is_active']) && (string)$storeData['is_active'] === '0') ? 0 : 1),
+            );
             foreach ($translatableFields as $field) {
                 $flagKey = 'use_default_' . $field;
                 if (!empty($storeData[$flagKey])) {
@@ -367,5 +398,64 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
     protected function _isAllowed(): bool
     {
         return Mage::getSingleton('admin/session')->isAllowed('dc_catalog/manufacturer');
+    }
+
+    /**
+     * Store pages that inherit the Status ("Use Default Value") keep a stored copy of it, so
+     * the grid and its filters stay truthful. After the default page is saved, bring those
+     * copies in line with it. What a visitor sees never depends on the copy: it is always
+     * resolved from the default page (DC_Catalog_Model_Mysql4_Manufacturer::isVisibleInStore()).
+     *
+     * @param DC_Catalog_Model_Manufacturer $model the page that was just saved
+     */
+    protected function _syncInheritingStoreRows($model)
+    {
+        if (!$model->getId()) {
+            return;
+        }
+
+        /** @var Mage_Core_Model_Resource $resource */
+        $resource = Mage::getSingleton('core/resource');
+        $read     = $resource->getConnection('core_read');
+        $write    = $resource->getConnection('core_write');
+        $table    = $resource->getTableName('dc_catalog/manufacturer');
+
+        $row = $read->fetchRow(
+            $read->select()
+                ->from($table, array('attribute_code', 'attribute_option_id', 'attribute_value_store_id', 'is_active'))
+                ->where('attribute_page_id = ?', (int)$model->getId())
+        );
+        if (!$row) {
+            return;
+        }
+        if ((int)$row['attribute_value_store_id'] !== 0) {
+            // A store page saved with "Use Default Value" ticked takes the default's Status now.
+            $defaultActive = $read->fetchOne(
+                $read->select()
+                    ->from($table, array('is_active'))
+                    ->where('attribute_code = ?', $row['attribute_code'])
+                    ->where('attribute_option_id = ?', (int)$row['attribute_option_id'])
+                    ->where('attribute_value_store_id = ?', 0)
+            );
+            if ($defaultActive !== false) {
+                $write->update(
+                    $table,
+                    array('is_active' => (int)$defaultActive),
+                    array('attribute_page_id = ?' => (int)$model->getId(), 'use_default_is_active = ?' => 1)
+                );
+            }
+            return;
+        }
+
+        $write->update(
+            $table,
+            array('is_active' => (int)$row['is_active']),
+            array(
+                'attribute_code = ?'           => $row['attribute_code'],
+                'attribute_option_id = ?'      => (int)$row['attribute_option_id'],
+                'attribute_value_store_id > ?' => 0,
+                'use_default_is_active = ?'    => 1,
+            )
+        );
     }
 }

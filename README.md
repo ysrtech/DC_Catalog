@@ -57,6 +57,12 @@ DC_Catalog turns any product attribute value (brand, manufacturer, colour, etc.)
 #### Product Page Description
 - **"Description in product page"** field (Product tab) is now translatable with "Use Default Value" support
 
+#### Store View Visibility
+- **Status** can be set per store view: on the **Store View Translations** tab each store view has its own Status with a "Use Default Value" checkbox (also on the main form when editing a store-specific page)
+- A store view that inherits follows the default page; one that overrides keeps its own value, so a brand can be disabled in one store view (or all but one) only
+- A page disabled in a store view is left out of that store view's brand lists, its URL redirects (302) to the list page of that attribute, and the brand name on product pages is shown without a link
+- The store view's Status is resolved at request time from the default page and the store view's own override, so changing the default is reflected everywhere that inherits
+
 ---
 
 ## Installation
@@ -103,9 +109,19 @@ Leave empty to use the raw attribute code as the URL prefix (default behaviour).
 5. Enter translated values for each field, or tick **"Use Default Value"** to inherit from the default store
 6. Save — the translation row is created automatically
 
+### Disabling a Brand in One Store View
+
+1. Open the brand and go to the **"Store View Translations"** tab
+2. Expand the store view, untick **Use Default Value** under Status and choose **Disabled**
+3. Save — the header of that store view shows a red *Disabled in this store view* badge
+
+To disable a brand everywhere, set Status to Disabled on the default page; store views that override with **Enabled** stay visible.
+
 ---
 
 ## Upgrade Notes
+
+- **v0.2.2 → v0.2.3**: Adds a `use_default_is_active` column to `catalog_attribute_page` (default `1`, i.e. every store view inherits the default page's Status). Every existing store view page inherits the default page's Status (the stored copy on translation rows is brought in line with it), so nothing changes on the frontend until a store view is given its own Status.
 
 - **v0.2.1 → v0.2.2**: Adds 5 `TINYINT` columns to `catalog_attribute_page`. The migration is instant on InnoDB (MySQL 5.6+). All existing data and frontend behaviour is unchanged.
 

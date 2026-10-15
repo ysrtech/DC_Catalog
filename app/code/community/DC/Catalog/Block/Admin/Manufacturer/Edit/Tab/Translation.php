@@ -72,6 +72,8 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Translation extends Mage_Core
             .dc-trans-badge-new    { color: #c07700; font-size: 11px; font-weight: normal; margin-left: 8px; }
             .dc-trans-badge-exists { color: #2a7a00; font-size: 11px; font-weight: normal; margin-left: 8px; }
             .dc-field-off { background: #f5f5f5 !important; color: #aaa !important; }
+            .dc-trans-badge-off    { color: #b30000; font-size: 11px; font-weight: bold; margin-left: 8px; }
+            .dc-trans-field select { min-width: 160px; }
         </style>
 
         <div id="dc-trans-wrap">
@@ -81,6 +83,14 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Translation extends Mage_Core
             $storeName = $helper->escapeHtml($store->getName() . ' [' . $store->getCode() . ']');
             $storeRow  = $this->_loadRawStoreRow($attrCode, $optionId, $storeId);
             $hasRow    = !empty($storeRow);
+            // Status: a store view either inherits the default page's Status or has its own.
+            $defaultActive    = $defaultRow ? (int)$defaultRow['is_active'] : 1;
+            $useDefaultActive = !$hasRow || !isset($storeRow['use_default_is_active']) || !empty($storeRow['use_default_is_active']);
+            $storeActive      = ($hasRow && !$useDefaultActive) ? (int)$storeRow['is_active'] : $defaultActive;
+            $effectiveActive  = $useDefaultActive ? $defaultActive : $storeActive;
+            $statusBadge      = $effectiveActive
+                ? ''
+                : '<span class="dc-trans-badge-off">&#10005; ' . $helper->__('Disabled in this store view') . '</span>';
             $isOpen    = $hasRow ? ' dc-open' : '';
             $badge     = $hasRow
                 ? '<span class="dc-trans-badge-exists">&#10003; ' . $helper->__('Has translation') . '</span>'
@@ -88,10 +98,33 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Translation extends Mage_Core
         ?>
         <div class="dc-trans-store" id="dc_ts_<?php echo $storeId ?>">
             <div class="dc-trans-store-hd" onclick="dcTransToggle(<?php echo $storeId ?>)">
-                <span><?php echo $storeName . $badge ?></span>
+                <span><?php echo $storeName . $badge . $statusBadge ?></span>
                 <span class="dc-trans-arrow" id="dc_ts_arrow_<?php echo $storeId ?>"><?php echo $hasRow ? '&#9650;' : '&#9660;' ?></span>
             </div>
             <div class="dc-trans-store-bd<?php echo $isOpen ?>" id="dc_ts_bd_<?php echo $storeId ?>">
+            <?php
+                $activeId   = 'dc_ti_' . $storeId . '_is_active';
+                $activeCbId = 'dc_tc_' . $storeId . '_is_active';
+                $activeOff  = $useDefaultActive ? ' disabled="disabled" class="dc-field-off"' : '';
+            ?>
+            <div class="dc-trans-field">
+                <label class="dc-lbl" for="<?php echo $activeId ?>"><?php echo $helper->__('Status') ?></label>
+                <select id="<?php echo $activeId ?>" name="translations[<?php echo $storeId ?>][is_active]"<?php echo $activeOff ?>>
+                    <option value="1"<?php echo $storeActive ? ' selected="selected"' : '' ?>><?php echo $helper->__('Enabled') ?></option>
+                    <option value="0"<?php echo !$storeActive ? ' selected="selected"' : '' ?>><?php echo $helper->__('Disabled') ?></option>
+                </select>
+                <div class="dc-trans-use-def">
+                    <input type="checkbox"
+                           id="<?php echo $activeCbId ?>"
+                           name="translations[<?php echo $storeId ?>][use_default_is_active]"
+                           value="1"
+                           <?php echo $useDefaultActive ? 'checked="checked"' : '' ?>
+                           onclick="dcTransToggleField('<?php echo $activeId ?>', this)" />
+                    <label for="<?php echo $activeCbId ?>"><?php echo $helper->__('Use Default Value') ?></label>
+                    <span class="dc-trans-hint"><?php echo $helper->__('Default: %s', $defaultActive ? $helper->__('Enabled') : $helper->__('Disabled')) ?></span>
+                </div>
+                <span class="dc-trans-hint"><?php echo $helper->__('When disabled, this value has no page in this store view (visitors are sent to the list), is not listed there, and is shown without a link on product pages.') ?></span>
+            </div>
             <?php foreach ($this->_translatableFields as $fieldName => $fieldLabel): ?>
             <?php
                 $inputId    = 'dc_ti_' . $storeId . '_' . $fieldName;

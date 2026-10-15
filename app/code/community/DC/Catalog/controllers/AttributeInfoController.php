@@ -41,6 +41,11 @@ class DC_Catalog_AttributeInfoController extends Mage_Core_Controller_Front_Acti
 
         	$helper->renderAttributePage($this);
 
+        } elseif ($redirectUrl = $helper->getDisabledRedirectUrl()) {
+        	//the page is disabled in this store view: send the visitor to the list of values.
+        	//A 302, not a 301, because the Status can be switched back on at any time.
+        	$this->getResponse()->setRedirect($redirectUrl, 302);
+
         } else {
         	//no page found, neither generic attribute info found, so display the noroute way
         	$this->_forward('noRoute');

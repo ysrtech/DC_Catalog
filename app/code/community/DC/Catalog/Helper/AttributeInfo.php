@@ -26,6 +26,25 @@ class DC_Catalog_Helper_AttributeInfo extends Mage_Core_Helper_Abstract
     protected $_attributePage;
 
     /**
+     * Set by loadAttributePage() when the requested page is disabled in the current store view.
+     *
+     * @var string|null
+     */
+    protected $_disabledRedirectUrl;
+
+    /**
+     * Where to send the visitor when loadAttributePage() refused a page because it is
+     * disabled in this store view (the attribute's list of values), or null if the
+     * page simply was not found.
+     *
+     * @return string|null
+     */
+    public function getDisabledRedirectUrl()
+    {
+        return $this->_disabledRedirectUrl;
+    }
+
+    /**
      * Retrieve attribute page controller
      *
      * @return DC_Catalog_Model_Manufacturer
@@ -84,6 +103,16 @@ class DC_Catalog_Helper_AttributeInfo extends Mage_Core_Helper_Abstract
 			} else {
 				return false;
 			}
+		}
+
+		//a value whose page is disabled in this store view has no page here: send the
+		//visitor to the list of that attribute's values instead
+		$this->_disabledRedirectUrl = null;
+		if (!$attributeInfo->isVisibleInStore()) {
+			$this->_disabledRedirectUrl = Mage::getUrl(
+				Mage::helper('dc_catalog')->getAttributeUrlPrefix($attributeInfo->getData('attribute_code')) . '/'
+			);
+			return false;
 		}
 
 		$attributeValue = $attributeInfo->getData('attribute_option_id') > 0 ? $attributeInfo->getData('attribute_option_id') : $attributeInfo->getData('option_id');

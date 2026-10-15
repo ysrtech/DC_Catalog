@@ -71,6 +71,27 @@ class DC_Catalog_Model_Manufacturer extends Mage_Core_Model_Abstract
         return $this->_getResource()->getOptionIdFromIdentifier($attribute_code, $identifier, $storeId);
     }
 
+    /**
+     * Whether this value's info page is enabled in a store view (the current store by
+     * default): its own Status in that store view if it overrides it, else the default page's.
+     *
+     * @param  int|null $storeId
+     * @return bool
+     */
+    public function isVisibleInStore($storeId = null)
+    {
+        $attributeCode = $this->getData('attribute_code');
+        $optionId      = $this->getData('attribute_option_id') ? $this->getData('attribute_option_id') : $this->getData('option_id');
+        if (!$attributeCode || !$optionId) {
+            return true;
+        }
+        if ($storeId === null) {
+            $storeId = Mage::app()->getStore()->getId();
+        }
+
+        return $this->_getResource()->isVisibleInStore($attributeCode, $optionId, $storeId);
+    }
+
     public function getImageUrl($field = 'image')
     {
         $url = false;

@@ -86,7 +86,7 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Main
             'after_element_html' => '<p class="nm"><small>' . Mage::helper('adminhtml')->__('(eg: '.$hint.')') . '</small></p>',
         ));
 
-    	$fieldset->addField('is_active', 'select', array(
+    	$statusField = $fieldset->addField('is_active', 'select', array(
             'label'     => Mage::helper('adminhtml')->__('Status'),
             'title'     => Mage::helper('adminhtml')->__('Status'),
             'name'      => 'is_active',
@@ -95,8 +95,24 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Main
                 '1' => Mage::helper('adminhtml')->__('Enabled'),
                 '0' => Mage::helper('adminhtml')->__('Disabled'),
             ),
-            'after_element_html' => '<p class="nm"><small>' . Mage::helper('adminhtml')->__('Disabled values will not appear in the list, and will not have a link on them in the product pages') . '</small></p>',
+            'after_element_html' => '<p class="nm"><small>' . Mage::helper('adminhtml')->__('Disabled values will not appear in the list, have no page of their own (visitors are sent to the list), and will not have a link on them in the product pages. Each store view can override this on the Store View Translations tab.') . '</small></p>',
         ));
+
+    	if ($isStoreScope) {
+            // A store-specific page either inherits the default page's Status or has its own.
+            // A page that does not exist yet inherits, so creating it cannot silently override
+            // a disabled default.
+            $useDefaultActive = $model->getAttributePageId() ? (bool)$model->getUseDefaultIsActive() : true;
+            $defaultActive    = ($defaultModel && $defaultModel->getData('is_active') !== null) ? (int)$defaultModel->getData('is_active') : 1;
+            $statusField->setAfterElementHtml(
+                $statusField->getAfterElementHtml()
+                . $this->_getScopeCheckboxHtml(
+                    'is_active', $useDefaultActive,
+                    Mage::helper('adminhtml')->__($defaultActive ? 'Enabled' : 'Disabled'),
+                    true
+                )
+            );
+        }
 
     	$fieldset->addField('favorite', 'text', array(
             'name'      => 'favorite',
@@ -169,8 +185,12 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Main
      * @param  string $defaultValue    Raw default-store value (shown as a hint)
      * @return string
      */
-    protected function _getScopeCheckboxHtml($fieldName, $isChecked, $defaultValue = '')
+    protected function _getScopeCheckboxHtml($fieldName, $isChecked, $defaultValue = '', $postWhenUnchecked = false)
     {
+        // An unticked checkbox posts nothing. Where "not ticked" must be told apart from "not on
+        // this form at all", a hidden 0 goes first and the ticked checkbox's 1 overrides it.
+        $uncheckedHtml = $postWhenUnchecked ? '<input type="hidden" name="use_default_' . $fieldName . '" value="0" />' : '';
+
         $checkboxId  = 'use_default_' . $fieldName;
         $textareaId  = 'page_' . $fieldName;   // Varien form uses the html_id_prefix "page_"
         $checked     = $isChecked ? ' checked="checked"' : '';
@@ -192,6 +212,7 @@ class DC_Catalog_Block_Admin_Manufacturer_Edit_Tab_Main
 
         return <<<HTML
 <div class="dc-use-default-row" id="dc_use_default_row_{$fieldName}">
+    {$uncheckedHtml}
     <input type="checkbox"
            id="{$checkboxId}"
            name="{$checkboxId}"

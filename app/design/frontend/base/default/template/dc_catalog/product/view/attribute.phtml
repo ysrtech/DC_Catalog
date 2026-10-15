@@ -34,6 +34,11 @@ for ($i = 0; $i < sizeof($attributeOptions); $i++) {
 	$_imgHtml   = '';
 
 	if($_attr) {
+		//a value whose info page is disabled in this store view is shown, but without a link to it
+		$_linkable = $_attr->isVisibleInStore();
+		$_pageUrl  = $this->getUrl('/').$_urlHelper->getAttributeUrlPrefix($_attr->getAttributeCode()).'/'.$_attr->getIdentifier();
+		$_blockUrl = $this->getUrl('/').$_attr->getAttributeCode().'/'.$_attr->getIdentifier();
+
 		if(!$text_only) {
 			//in the product view page, we try to display the banner if it exists
 			//otherwise, go for the manufacturer logo
@@ -82,10 +87,10 @@ for ($i = 0; $i < sizeof($attributeOptions); $i++) {
 
 				if ('block' == $img_align) {
 					$_imgHtml = '
-						<a href="'.$this->getUrl('/').$_attr->getAttributeCode().'/'.$_attr->getIdentifier().'"
+						<'.($_linkable ? 'a href="'.$_blockUrl.'"' : 'span').'
 						title="'.$this->escapeHtml($_attr->getName()).'"
 						style="display: block; background:url(\''.$_imgUrl.'\') no-repeat top center; height: '.($thumbnail_height ? $thumbnail_height : $height).'px">
-						</a>';
+						</'.($_linkable ? 'a' : 'span').'>';
 				} else {
 					$_imgHtml = '<img
 						width="'.($thumbnail_width ? $thumbnail_width : $width) .'"
@@ -103,15 +108,19 @@ for ($i = 0; $i < sizeof($attributeOptions); $i++) {
 			if ('block' == $img_align) {
 				$output[] = $_imgHtml;
 			} else {
-				$output[] = '<a
-					href="'. $this->getUrl('/').$_urlHelper->getAttributeUrlPrefix($_attr->getAttributeCode()).'/'.$_attr->getIdentifier().'"
-					title="'. $_attr->getName().'">'. $_imgHtml.'</a>';
+				$output[] = $_linkable
+					? '<a
+						href="'. $_pageUrl .'"
+						title="'. $_attr->getName().'">'. $_imgHtml.'</a>'
+					: $_imgHtml;
 			}
 			$hasImages = true;
 		} elseif (!$image_only) {
-			$output[] = '<a
-				href="'. $this->getUrl('/').$_urlHelper->getAttributeUrlPrefix($_attr->getAttributeCode()).'/'.$_attr->getIdentifier().'"
-					title="'. $this->escapeHtml($_attr->getName()).'">'.$_attr->getValue().'</a>';
+			$output[] = $_linkable
+				? '<a
+					href="'. $_pageUrl .'"
+						title="'. $this->escapeHtml($_attr->getName()).'">'.$_attr->getValue().'</a>'
+				: $this->escapeHtml($_attr->getValue());
 			$hasText = true;
 		}
 	}

@@ -121,16 +121,36 @@ class DC_Catalog_Model_Mysql4_Manufacturer_Collection extends Mage_Core_Model_Re
     }
 
     /**
-     * Add Filter for enabled
+     * Add Filter for enabled, as seen from a store view.
      *
-     * @param int|Mage_Core_Model_Store $store
+     * Same rule as DC_Catalog_Model_Mysql4_Manufacturer::isVisibleInStore(): the store
+     * view's own Status when it overrides the default, else the default page's Status,
+     * else enabled (a value with no page row has never been disabled). Resolved from the
+     * page table by attribute and option, not from main_table, because main_table may be
+     * either the default row or a store row of the value.
+     *
+     * @param int|Mage_Core_Model_Store|null $store null = current store
      * @return DC_Catalog_Model_Mysql4_Manufacturer_Collection
      */
-    public function addEnabledFilter()
+    public function addEnabledFilter($store = null)
     {
-    	//the disabled flag must be set explicit
-    	//if there is no record in values table, it means it the value page is not created yet, so the default is 1
-        $this->getSelect()->where('coalesce(main_table.is_active,1) > 0');
+        if ($store instanceof Mage_Core_Model_Store) {
+            $store = $store->getId();
+        }
+        $storeId = (int)($store === null ? Mage::app()->getStore()->getId() : $store);
+        $table   = $this->getMainTable();
+
+        // Matched on the option id alone: it is unique across attributes, and comparing the
+        // attribute_code columns would fail where the page table and eav_attribute use
+        // different collations (utf8_unicode_ci vs utf8_general_ci, as on the live database).
+        $override = "(SELECT o.is_active FROM `{$table}` AS o"
+            . " WHERE o.attribute_option_id = aov.option_id"
+            . " AND o.attribute_value_store_id = {$storeId} AND o.use_default_is_active = 0 LIMIT 1)";
+        $default  = "(SELECT d.is_active FROM `{$table}` AS d"
+            . " WHERE d.attribute_option_id = aov.option_id"
+            . " AND d.attribute_value_store_id = 0 LIMIT 1)";
+
+        $this->getSelect()->where("COALESCE({$override}, {$default}, 1) > 0");
         return $this;
     }
 

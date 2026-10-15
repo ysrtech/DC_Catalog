@@ -241,7 +241,17 @@ class DC_Catalog_Model_Mysql4_Manufacturer extends Mage_Core_Model_Resource_Db_A
         if ($object->getId()) {
             $select->where('main_table.attribute_page_id <> ?',$object->getId());
         }
-        $select->where('main_table.attribute_value_store_id = ?', $object->getData('attribute_value_store_id'));
+        // The edit form does not post the store of an existing page; without it the check would
+        // compare against the default store and reject a store page that reuses the default's identifier.
+        $storeId = $object->getData('attribute_value_store_id');
+        if ($storeId === null && $object->getId()) {
+            $storeId = $this->_getWriteAdapter()->fetchOne(
+                $this->_getWriteAdapter()->select()
+                    ->from($this->getMainTable(), array('attribute_value_store_id'))
+                    ->where('attribute_page_id = ?', $object->getId())
+            );
+        }
+        $select->where('main_table.attribute_value_store_id = ?', $storeId);
 
         if ($this->_getWriteAdapter()->fetchRow($select)) {
             return false;
@@ -328,6 +338,54 @@ class DC_Catalog_Model_Mysql4_Manufacturer extends Mage_Core_Model_Resource_Db_A
         }
 
         return false;
+    }
+
+    /** @var array request cache for isVisibleInStore(): "code|option|store" => bool */
+    protected $_visibility = array();
+
+    /**
+     * Whether a value's info page is enabled in a store view.
+     *
+     * A store view's own row decides when it has its "Use Default Value" box for the
+     * Status switched off; otherwise the default page (store 0) decides. A value that
+     * has no page row at all has never been disabled, so it is enabled.
+     *
+     * Asked directly from the page table, not from a loaded model: a model loads one
+     * row (store or default), which is not necessarily the one that decides.
+     *
+     * @param  string $attributeCode
+     * @param  int    $optionId
+     * @param  int    $storeId
+     * @return bool
+     */
+    public function isVisibleInStore($attributeCode, $optionId, $storeId)
+    {
+        $key = $attributeCode . '|' . (int)$optionId . '|' . (int)$storeId;
+        if (isset($this->_visibility[$key])) {
+            return $this->_visibility[$key];
+        }
+
+        $read   = $this->_getReadAdapter();
+        $select = $read->select()
+            ->from($this->getMainTable(), array('attribute_value_store_id', 'is_active', 'use_default_is_active'))
+            ->where('attribute_code = ?', $attributeCode)
+            ->where('attribute_option_id = ?', (int)$optionId)
+            ->where('attribute_value_store_id IN (0, ?)', (int)$storeId);
+
+        $default  = null;
+        $override = null;
+        foreach ($read->fetchAll($select) as $row) {
+            if ((int)$row['attribute_value_store_id'] === 0) {
+                $default = $row;
+            } elseif (!(int)$row['use_default_is_active']) {
+                $override = $row;
+            }
+        }
+
+        $decisive = $override ? $override : $default;
+        $visible  = $decisive === null || (int)$decisive['is_active'] > 0;
+
+        return $this->_visibility[$key] = $visible;
     }
 
     /**
