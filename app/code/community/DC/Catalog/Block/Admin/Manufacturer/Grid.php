@@ -128,6 +128,58 @@ class DC_Catalog_Block_Admin_Manufacturer_Grid extends Mage_Adminhtml_Block_Widg
         return parent::_prepareColumns();
     }
 
+    /**
+     * Mass action: set the Status of many values at once, in the default page or one store view.
+     * The grid lists a value once per store view it has a label in, so the selection is by option id.
+     */
+    protected function _prepareMassaction()
+    {
+        $helper = Mage::helper('dc_catalog');
+
+        $this->setMassactionIdField('option_id');
+        $this->setMassactionIdFieldOnlyIndexValue(true);   // the rows' own id is the false_id of the grid
+        $this->getMassactionBlock()->setFormFieldName('option_ids');
+
+        $storeOptions = array(array('value' => '0', 'label' => $helper->__('Default page (all store views that inherit)')));
+        foreach (Mage::app()->getWebsites() as $website) {
+            foreach ($website->getGroups() as $group) {
+                foreach ($group->getStores() as $store) {
+                    $storeOptions[] = array(
+                        'value' => (string)$store->getId(),
+                        'label' => $website->getName() . ' / ' . $store->getName(),
+                    );
+                }
+            }
+        }
+
+        $this->getMassactionBlock()->addItem('status', array(
+            'label'      => $helper->__('Change Status'),
+            'url'        => $this->getUrl('*/*/massStatus'),
+            'additional' => array(
+                'store' => array(
+                    'name'   => 'store',
+                    'type'   => 'select',
+                    'class'  => 'required-entry',
+                    'label'  => $helper->__('Store view'),
+                    'values' => $storeOptions,
+                ),
+                'status' => array(
+                    'name'   => 'status',
+                    'type'   => 'select',
+                    'class'  => 'required-entry',
+                    'label'  => $helper->__('Status'),
+                    'values' => array(
+                        array('value' => '1',       'label' => $helper->__('Enabled')),
+                        array('value' => '0',       'label' => $helper->__('Disabled')),
+                        array('value' => 'default', 'label' => $helper->__('Use Default Value (store views only)')),
+                    ),
+                ),
+            ),
+        ));
+
+        return $this;
+    }
+
     protected function _filterStoreCondition($collection, $column)
     {
         if (!$value = $column->getFilter()->getValue()) {

@@ -232,6 +232,200 @@ class DC_Catalog_Admin_ManufacturerController extends Mage_Adminhtml_Controller_
     }
 
     /**
+     * Mass action: set the Status of the selected values in the default page or in one store view.
+     *
+     * Request: option_ids[] (the grid's selection), store (0 = default page, else a store view id),
+     * status (1 = Enabled, 0 = Disabled, 'default' = Use Default Value, store views only).
+     *
+     * Only rows that have to exist are created: enabling a value that has no page changes nothing
+     * (a value without a page is shown everywhere), disabling it creates the page first.
+     */
+    public function massStatusAction()
+    {
+        $optionIds = array_unique(array_filter(array_map('intval', (array)$this->getRequest()->getParam('option_ids'))));
+        $storeId   = (int)$this->getRequest()->getParam('store');
+        $status    = (string)$this->getRequest()->getParam('status');
+        $session   = Mage::getSingleton('adminhtml/session');
+        $helper    = Mage::helper('dc_catalog');
+
+        if (!$optionIds) {
+            $session->addError($helper->__('Please select the pages to update.'));
+            return $this->_redirect('*/*/');
+        }
+        if (!in_array($status, array('0', '1', 'default'), true)) {
+            $session->addError($helper->__('Please choose a Status.'));
+            return $this->_redirect('*/*/');
+        }
+        if ($storeId === 0 && $status === 'default') {
+            $session->addError($helper->__('"Use Default Value" only applies to a store view. Choose Enabled or Disabled for the default page.'));
+            return $this->_redirect('*/*/');
+        }
+        $stores = Mage::app()->getStores(true);
+        if ($storeId > 0 && !isset($stores[$storeId])) {
+            $session->addError($helper->__('The store view does not exist.'));
+            return $this->_redirect('*/*/');
+        }
+
+        /** @var Mage_Core_Model_Resource $resource */
+        $resource = Mage::getSingleton('core/resource');
+        $read     = $resource->getConnection('core_read');
+        $write    = $resource->getConnection('core_write');
+        $table    = $resource->getTableName('dc_catalog/manufacturer');
+        $now      = Mage::getSingleton('core/date')->gmtDate();
+
+        // option id -> attribute code / default label, for the allowed attributes only
+        $options = $read->fetchAll(
+            $read->select()
+                ->from(array('ao' => $resource->getTableName('eav/attribute_option')), array('option_id'))
+                ->join(array('a' => $resource->getTableName('eav/attribute')), 'a.attribute_id = ao.attribute_id', array('attribute_code', 'frontend_label'))
+                ->joinLeft(array('v' => $resource->getTableName('eav/attribute_option_value')), 'v.option_id = ao.option_id AND v.store_id = 0', array('value'))
+                ->where('ao.option_id IN (?)', $optionIds)
+                ->where('a.attribute_code IN (?)', explode(',', (string)Mage::getStoreConfig('dc_catalog/attributes/selectedattributes')))
+        );
+
+        $changed = $skipped = 0;
+        $errors  = array();
+        foreach ($options as $opt) {
+            $code     = $opt['attribute_code'];
+            $optionId = (int)$opt['option_id'];
+            try {
+                $defaultRow = $read->fetchRow(
+                    $read->select()->from($table)
+                        ->where('attribute_code = ?', $code)
+                        ->where('attribute_option_id = ?', $optionId)
+                        ->where('attribute_value_store_id = ?', 0)
+                );
+
+                // a value without a page is already shown everywhere: only disabling needs a page
+                if (!$defaultRow && $status !== '0') {
+                    $skipped++;
+                    continue;
+                }
+
+                if (!$defaultRow) {
+                    $defaultRow = $this->_createDefaultRow($opt, $now);
+                }
+
+                if ($storeId === 0) {
+                    $write->update($table, array('is_active' => (int)$status, 'update_time' => $now), array('attribute_page_id = ?' => (int)$defaultRow['attribute_page_id']));
+                    // store pages that inherit keep a copy of the Status
+                    $write->update($table, array('is_active' => (int)$status), array(
+                        'attribute_code = ?' => $code, 'attribute_option_id = ?' => $optionId,
+                        'attribute_value_store_id > ?' => 0, 'use_default_is_active = ?' => 1,
+                    ));
+                    $changed++;
+                    continue;
+                }
+
+                $storeRow = $read->fetchRow(
+                    $read->select()->from($table, array('attribute_page_id'))
+                        ->where('attribute_code = ?', $code)
+                        ->where('attribute_option_id = ?', $optionId)
+                        ->where('attribute_value_store_id = ?', $storeId)
+                );
+                $inherit = ($status === 'default');
+                $data = array(
+                    'use_default_is_active' => $inherit ? 1 : 0,
+                    'is_active'             => $inherit ? (int)$defaultRow['is_active'] : (int)$status,
+                    'update_time'           => $now,
+                );
+                if ($storeRow) {
+                    $write->update($table, $data, array('attribute_page_id = ?' => (int)$storeRow['attribute_page_id']));
+                } elseif ($inherit) {
+                    $skipped++;
+                    continue;
+                } else {
+                    // a new store view page translates nothing: it inherits every other field
+                    $write->insert($table, array_merge(array(
+                        'attribute_code'           => $code,
+                        'attribute_option_id'      => $optionId,
+                        'attribute_value_store_id' => $storeId,
+                        'name'                     => $defaultRow['name'],
+                        'identifier'               => $defaultRow['identifier'],
+                        'favorite'                 => $defaultRow['favorite'],
+                        'image'                    => (string)$defaultRow['image'],
+                        'banner'                   => $defaultRow['banner'],
+                        'external_url'             => $defaultRow['external_url'],
+                        'external_url_label'       => $defaultRow['external_url_label'],
+                        'root_template'            => (string)$defaultRow['root_template'],
+                        'creation_time'            => $now,
+                        'page_title' => '', 'meta_keywords' => '', 'meta_description' => '', 'description' => '', 'description_in_page' => '',
+                        'use_default_page_title' => 1, 'use_default_meta_keywords' => 1, 'use_default_meta_description' => 1,
+                        'use_default_description' => 1, 'use_default_description_in_page' => 1,
+                    ), $data));
+                }
+                $changed++;
+            } catch (Exception $e) {
+                $errors[] = trim($opt['value'] . ' (' . $code . ' ' . $optionId . '): ' . $e->getMessage());
+            }
+        }
+
+        $found = count($options);
+        if ($found < count($optionIds)) {
+            $skipped += count($optionIds) - $found;   // options of attributes that have no info pages
+        }
+        if ($changed) {
+            $session->addSuccess($helper->__('%d page(s) updated.', $changed));
+        }
+        if ($skipped) {
+            $session->addNotice($helper->__('%d value(s) needed no change.', $skipped));
+        }
+        foreach (array_slice($errors, 0, 10) as $error) {
+            $session->addError($error);
+        }
+        if (count($errors) > 10) {
+            $session->addError($helper->__('... and %d more errors.', count($errors) - 10));
+        }
+        $this->_redirect('*/*/');
+    }
+
+    /**
+     * Create the default (store 0) page of an attribute value with the same defaults the edit form
+     * proposes for a new page, and return it.
+     *
+     * @param array  $opt option_id / attribute_code / frontend_label / value
+     * @param string $now
+     * @return array the stored row
+     */
+    protected function _createDefaultRow(array $opt, $now)
+    {
+        $resource = Mage::getSingleton('core/resource');
+        $read     = $resource->getConnection('core_read');
+        $write    = $resource->getConnection('core_write');
+        $table    = $resource->getTableName('dc_catalog/manufacturer');
+
+        $value      = (string)$opt['value'];
+        $identifier = DC_Catalog_Model_Mysql4_Manufacturer_Collection::formatUrlKey($value);
+        if ($identifier === '' || ctype_digit($identifier)) {
+            Mage::throwException(Mage::helper('dc_catalog')->__('no valid identifier can be made from the value'));
+        }
+        $clash = $read->fetchOne(
+            $read->select()->from($table, array('attribute_page_id'))
+                ->where('identifier = ?', $identifier)->where('attribute_value_store_id = ?', 0)
+        );
+        if ($clash) {
+            Mage::throwException(Mage::helper('dc_catalog')->__('the identifier "%s" is already used by another page', $identifier));
+        }
+
+        $write->insert($table, array(
+            'attribute_code'           => $opt['attribute_code'],
+            'attribute_option_id'      => (int)$opt['option_id'],
+            'attribute_value_store_id' => 0,
+            'name'                     => Mage::helper('dc_catalog')->__('Products by %s: %s', $opt['frontend_label'], $value),
+            'identifier'               => $identifier,
+            'is_active'                => 1,
+            'external_url_label'       => Mage::helper('dc_catalog')->__('Visit %s on the web', $value),
+            'root_template'            => 'empty',
+            'image'                    => '',
+            'page_title' => '', 'meta_keywords' => '', 'meta_description' => '', 'description' => '',
+            'creation_time'            => $now,
+            'update_time'              => $now,
+        ));
+
+        return $read->fetchRow($read->select()->from($table)->where('attribute_page_id = ?', (int)$write->lastInsertId($table)));
+    }
+
+    /**
      * Save per-store translations that were submitted via the Translations tab.
      *
      * Writes directly to the DB (INSERT or UPDATE) to bypass _beforeSave validation

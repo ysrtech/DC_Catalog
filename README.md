@@ -117,6 +117,17 @@ Leave empty to use the raw attribute code as the URL prefix (default behaviour).
 
 To disable a brand everywhere, set Status to Disabled on the default page; store views that override with **Enabled** stay visible.
 
+### Changing the Status of Many Brands at Once
+
+In **CMS → Attribute Info Pages** tick the brands (or use *Select All* on a filtered list), choose **Change Status** in the Actions box, then pick:
+
+- **Store view** — *Default page* (every store view that inherits) or one specific store view
+- **Status** — *Enabled*, *Disabled* or *Use Default Value* (store views only)
+
+Only the pages that need to exist are created: disabling a brand that has no page yet creates its page first, while enabling a brand without a page changes nothing (it is already shown). Brands whose page cannot be created (for example because the identifier is already taken) are listed in the error message and left untouched.
+
+To disable a brand everywhere except one store view: set the *Default page* to Disabled, then set that store view to Enabled.
+
 ---
 
 ## Upgrade Notes
